@@ -1,0 +1,14 @@
+{
+  "Main Orchestrator / Planning": ["glm-5.3-flash-free", "deepseek-v4.1-flash-free", "nemotron-3-ultra-free"],
+  "Backend / API": ["deepseek-v4.1-flash-free", "glm-5.3-flash-free", "mimo-v2.6-flash-free"],
+  "Database / PostgreSQL": ["glm-5.3-flash-free", "deepseek-v4.1-flash-free", "nemotron-3-ultra-free"],
+  "Security / Auditing": ["deepseek-v4.1-flash-free", "glm-5.3-flash-free", "nemotron-3-ultra-free"],
+  "Frontend / UI / UX": ["minimax-m3.1-flash-free", "deepseek-v4.1-flash-free", "mimo-v2.6-flash-free"],
+  "Coding / Refactoring": ["deepseek-v4.1-flash-free", "glm-5.3-flash-free", "mimo-v2.6-flash-free"],
+  "Testing / Debugging": ["deepseek-v4.1-flash-free", "glm-5.3-flash-free", "longcat-2.5-preview-free"],
+  "Code Review / QA": ["glm-5.3-flash-free", "deepseek-v4.1-flash-free", "nemotron-3-ultra-free"],
+  "Architecture / System Design": ["glm-5.3-flash-free", "deepseek-v4.1-flash-free", "nemotron-3-ultra-free"],
+  "Automation / Integrations": ["deepseek-v4.1-flash-free", "mimo-v2.6-flash-free", "longcat-2.5-preview-free"],
+  "OCR / Images / Receipts": ["nemotron-3.5-super-vl-free", "deepseek-v4.1-flash-free", "nemotron-3.5-lightning-free"],
+  "Research / Documentation": ["glm-5.3-flash-free", "nemotron-3-ultra-free", "longcat-2.5-preview-free"]
+}
