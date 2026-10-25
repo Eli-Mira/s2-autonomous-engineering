@@ -1,0 +1,26 @@
+{
+  "timestamp": "2026-10-25T08:47:06.352426+00:00",
+  "workspace": "C:\\Users\\emadg\\AppData\\Local\\hermes\\cache\\scratch\\autonomous-integration",
+  "output_base": "C:\\Users\\emadg\\AppData\\Local\\hermes\\cache\\scratch\\autonomous-integration\\output",
+  "tasks": [
+    {
+      "id": "TASK_B",
+      "title": "Fix Calculator bugs",
+      "state": "done",
+      "specialist": "backend",
+      "dependencies": [],
+      "commit_hash": null
+    },
+    {
+      "id": "TASK_C",
+      "title": "Add statistics methods to StringProcessor",
+      "state": "pending",
+      "specialist": "backend",
+      "dependencies": [
+        "TASK_A"
+      ],
+      "commit_hash": null
+    }
+  ],
+  "receipts": []
+}
