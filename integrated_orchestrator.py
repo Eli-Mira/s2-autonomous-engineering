@@ -107,6 +107,32 @@ class IntegratedOrchestrator:
             subprocess.run(["git", "add", "-A"], cwd=self.workspace, capture_output=True)
             subprocess.run(["git", "commit", "-m", "Initial: autonomous integration workspace", "--allow-empty"], 
                           cwd=self.workspace, capture_output=True)
+        else:
+            # Reconcile existing Git state with task store
+            self._reconcile_git_state()
+    
+    def _reconcile_git_state(self):
+        """Reconcile task store with actual Git commits on restart.
+        
+        Checks for commits that should be recorded in task store but aren't,
+        preventing duplicate commits on re-run.
+        """
+        for task in self.store.all():
+            if task.state == TaskState.DONE and not task.commit_id:
+                # Check if there's already a commit for this task
+                try:
+                    result = subprocess.run(
+                        ["git", "log", "--oneline", "--grep", f"[{task.task_id}]"],
+                        cwd=self.workspace, capture_output=True, text=True, timeout=10
+                    )
+                    if result.stdout.strip():
+                        # Found existing commit, extract hash
+                        commit_hash = result.stdout.strip().split()[0]
+                        task.commit_id = commit_hash
+                        self.store.save(task)
+                        print(f"  Reconciled {task.task_id}: found existing commit {commit_hash[:8]}")
+                except Exception:
+                    pass
     
     def add_task(self, task_id: str, title: str, description: str, 
                  specialist: str, dependencies: list[str] = None):
@@ -238,11 +264,15 @@ class StringProcessor:
                     dst.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(src, dst)
             
-            # Execute with FreeLLMAPI repair loop on isolated packet
+            # Get acceptance tests for this task
+            acceptance_tests = self._get_acceptance_tests(task_id)
+            
+            # Execute with FreeLLMAPI repair loop + acceptance-test-driven repair
             print(f"  [{task_id}] Starting FreeLLMAPI execution (category: {category})...")
             start_time = time.time()
             
-            receipts = freellmapi_repair_loop(
+            # Phase 1: Model's own repair loop (tests model-generated tests)
+            model_receipts = freellmapi_repair_loop(
                 category=category,
                 workspace=str(packet_root),
                 task=prompt,
@@ -253,7 +283,7 @@ class StringProcessor:
                 required_context=32768,
             )
             
-            # Copy results back to main workspace
+            # Copy model results back
             for rel_path in writes:
                 src = packet_root / rel_path
                 if src.is_file():
@@ -261,7 +291,87 @@ class StringProcessor:
                     dst.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(src, dst)
             
+            # Phase 2: ACCEPTANCE-TEST-DRIVEN repair loop
+            # Continue repairing until trusted acceptance tests pass
+            max_acceptance_repairs = 2
+            all_receipts = list(model_receipts)
+            test_results = None
+            
+            for acceptance_attempt in range(max_acceptance_repairs + 1):
+                # Run trusted acceptance tests
+                verify_result = subprocess.run(
+                    [sys.executable, "-m", "pytest", *acceptance_tests, "-q", "--tb=short"],
+                    cwd=str(self.workspace),
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+                
+                test_results = {
+                    "exit_code": verify_result.returncode,
+                    "stdout": verify_result.stdout,
+                    "stderr": verify_result.stderr,
+                    "acceptance_tests": acceptance_tests,
+                }
+                
+                if verify_result.returncode == 0:
+                    print(f"  [{task_id}] Acceptance tests PASSED")
+                    break
+                
+                if acceptance_attempt >= max_acceptance_repairs:
+                    print(f"  [{task_id}] Acceptance tests FAILED after {max_acceptance_repairs} repair attempts")
+                    break
+                
+                print(f"  [{task_id}] Acceptance tests FAILED (repair attempt {acceptance_attempt + 1}/{max_acceptance_repairs})")
+                
+                # Build repair prompt with acceptance test failure
+                acceptance_prompt = (
+                    prompt + "\n\n"
+                    "PREVIOUS ATTEMPT FAILED ACCEPTANCE TESTS. Here is the failure output:\n"
+                    f"STDOUT: {verify_result.stdout}\n"
+                    f"STDERR: {verify_result.stderr}\n"
+                    "The implementation must match the EXACT API signatures required by the acceptance tests. "
+                    "Do not change method signatures, add __init__, or use instance variables. "
+                    "Output the COMPLETE corrected file(s)."
+                )
+                
+                # Create new output directory for acceptance repair
+                acc_output = task_output / f"acceptance-repair-{acceptance_attempt}"
+                acc_output.mkdir(parents=True, exist_ok=True)
+                
+                # Sync workspace to packet
+                for rel_path in reads + writes:
+                    src = self.workspace / rel_path
+                    if src.is_file():
+                        dst = packet_root / rel_path
+                        dst.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(src, dst)
+                
+                # Run repair with acceptance failure feedback
+                repair_receipt = run_packet(
+                    category=category,
+                    workspace=str(packet_root),
+                    task=acceptance_prompt,
+                    reads=reads,
+                    writes=writes,
+                    output=str(acc_output),
+                    required_context=32768,
+                    freellmapi_only=True,
+                )
+                all_receipts.append(repair_receipt)
+                
+                # Copy results back
+                for rel_path in writes:
+                    src = packet_root / rel_path
+                    if src.is_file():
+                        dst = self.workspace / rel_path
+                        dst.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(src, dst)
+            
             elapsed_ms = int((time.time() - start_time) * 1000)
+            receipts = all_receipts
+            final_receipt = receipts[-1]
+            status = final_receipt.get("status", "blocked_unavailable")
             
         finally:
             # Cleanup packet
@@ -284,55 +394,37 @@ class StringProcessor:
         
         files_changed = final_receipt.get("changed", [])
         
-        # Extract test results
-        test_results = None
-        if "test_exit" in final_receipt:
-            test_results = {
-                "exit_code": final_receipt.get("test_exit"),
-                "stdout": final_receipt.get("test_stdout", ""),
-                "stderr": final_receipt.get("test_stderr", ""),
-            }
-        
-        # Create task receipt
+        # Create task receipt (test_results already set from acceptance loop)
         task_receipt = TaskReceipt(
             task_id=task_id,
-            status="completed" if status == "completed" else "failed",
+            status="completed" if (status == "completed" and test_results and test_results.get("exit_code") == 0) else "failed",
             attempts=[{"attempt": i, **r} for i, r in enumerate(receipts)],
             model_used=model_used,
             files_changed=files_changed,
             test_results=test_results,
             total_cost_usd=total_cost,
             elapsed_ms=elapsed_ms,
-            error=None if status == "completed" else final_receipt.get("error", status),
+            error=None if (status == "completed" and test_results and test_results.get("exit_code") == 0) else final_receipt.get("error", "Acceptance tests failed"),
         )
         
         # Transition state
-        if status == "completed":
+        if task_receipt.status == "completed":
             task = self.store.transition(task_id, TaskState.VERIFYING)
             
-            # Run verification tests ONLY for the module this task modified
-            # The repair loop already ran tests on written files and passed
-            # This is a targeted sanity check
-            verify_result = self._run_targeted_verification(task, files_changed)
-            if verify_result["exit_code"] != 0:
-                task = self.store.transition(task_id, TaskState.FAILED)
-                task_receipt.status = "failed"
-                task_receipt.error = "Targeted verification tests failed"
-            else:
-                task = self.store.transition(task_id, TaskState.REVIEWING)
-                
-                # Git commit
-                branch = f"task/{task_id}"
-                commit_msg = f"[{task_id}] {task.title} — FreeLLMAPI autonomous completion"
-                commit_hash = self._git_commit(commit_msg, branch=branch)
-                task.commit_hash = commit_hash
-                task_receipt.git_commit = commit_hash
-                task_receipt.git_branch = branch
-                
-                task = self.store.transition(task_id, TaskState.COMMITTED)
-                task = self.store.transition(task_id, TaskState.DONE)
-                task.finished_at = datetime.now(timezone.utc).isoformat()
-                self.store.save(task)
+            task = self.store.transition(task_id, TaskState.REVIEWING)
+            
+            # Git commit
+            branch = f"task/{task_id}"
+            commit_msg = f"[{task_id}] {task.title} — FreeLLMAPI autonomous completion"
+            commit_hash = self._git_commit(commit_msg, branch=branch)
+            task.commit_id = commit_hash
+            task_receipt.git_commit = commit_hash
+            task_receipt.git_branch = branch
+            
+            task = self.store.transition(task_id, TaskState.COMMITTED)
+            task = self.store.transition(task_id, TaskState.DONE)
+            task.finished_at = datetime.now(timezone.utc).isoformat()
+            self.store.save(task)
         else:
             task = self.store.transition(task_id, TaskState.FAILED)
             task_receipt.status = "failed"
@@ -368,23 +460,23 @@ class StringProcessor:
             return {"exit_code": 124, "stdout": e.stdout or "", "stderr": e.stderr or ""}
 
     def _run_targeted_verification(self, task: TaskRecord, files_changed: list[str]) -> dict:
-        """Run tests only for the modules that were changed."""
-        # Determine which test files to run based on changed source files
-        test_files = []
-        for f in files_changed:
-            if f.startswith("src/"):
-                module_name = Path(f).stem
-                test_file = f"tests/test_{module_name}.py"
-                if (self.workspace / test_file).exists():
-                    test_files.append(test_file)
+        """Run the TRUSTED acceptance suite for this task.
         
-        if not test_files:
-            # No specific tests found, run a quick smoke test
-            test_files = ["tests/"]
+        The orchestrator specifies which tests are required BEFORE model execution.
+        Acceptance tests are outside the model's writable scope.
+        This runs ALL required acceptance checks regardless of which files
+        the model modified.
+        """
+        # Get the acceptance test manifest for this task
+        acceptance_tests = self._get_acceptance_tests(task.task_id)
+        
+        if not acceptance_tests:
+            # No specific acceptance tests defined; run all tests
+            acceptance_tests = ["tests/"]
         
         try:
             result = subprocess.run(
-                [sys.executable, "-m", "pytest", *test_files, "-q", "--tb=short"],
+                [sys.executable, "-m", "pytest", *acceptance_tests, "-q", "--tb=short"],
                 cwd=str(self.workspace),
                 capture_output=True,
                 text=True,
@@ -394,9 +486,23 @@ class StringProcessor:
                 "exit_code": result.returncode,
                 "stdout": result.stdout,
                 "stderr": result.stderr,
+                "acceptance_tests": acceptance_tests,
             }
         except subprocess.TimeoutExpired as e:
-            return {"exit_code": 124, "stdout": e.stdout or "", "stderr": e.stderr or ""}
+            return {"exit_code": 124, "stdout": e.stdout or "", "stderr": e.stderr or "",
+                    "acceptance_tests": acceptance_tests}
+    
+    def _get_acceptance_tests(self, task_id: str) -> list[str]:
+        """Get the trusted acceptance test manifest for a task.
+        
+        Returns test files that the model cannot modify.
+        """
+        manifest_path = self.workspace / "acceptance_tests.json"
+        if manifest_path.exists():
+            manifest = json.loads(manifest_path.read_text())
+            return manifest.get(task_id, [])
+        # Default: all test files
+        return ["tests/test_*.py"]
     
     def _git_commit(self, message: str, branch: str) -> str:
         """Create a git commit on a feature branch."""
@@ -462,24 +568,72 @@ class StringProcessor:
         return None
     
     def save_evidence(self) -> Path:
-        """Save complete run evidence."""
+        """Save complete run evidence including full receipts."""
         evidence = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "workspace": str(self.workspace),
             "output_base": str(self.output_base),
-            "tasks": [{
+            "tasks": [],
+            "receipts": [],
+        }
+        
+        # Load receipts from output directories
+        for task_dir in self.output_base.iterdir():
+            if not task_dir.is_dir() or task_dir.name.startswith("recovery"):
+                continue
+            for attempt_dir in task_dir.iterdir():
+                if attempt_dir.is_dir():
+                    receipt_path = attempt_dir / "receipt.json"
+                    if receipt_path.exists():
+                        try:
+                            with open(receipt_path) as fp:
+                                receipt = json.load(fp)
+                            receipt["task_id"] = task_dir.name
+                            receipt["attempt_dir"] = attempt_dir.name
+                            evidence["receipts"].append(receipt)
+                        except Exception:
+                            pass
+        
+        # Task summary with commit metadata
+        for task in self.store.all():
+            task_info = {
                 "id": task.task_id,
                 "title": task.title,
                 "state": task.state.value,
                 "specialist": task.specialist,
                 "dependencies": task.dependencies,
-                "commit_hash": task.commit_id,
-            } for task in self.store.all()],
-            "receipts": [],
-        }
+                "commit_id": task.commit_id,
+            }
+            # Add commit details if available
+            if task.commit_id:
+                # Get parent commit
+                try:
+                    result = subprocess.run(
+                        ["git", "log", "--pretty=format:%P", "-1", task.commit_id],
+                        cwd=self.workspace, capture_output=True, text=True, timeout=10
+                    )
+                    parents = result.stdout.strip().split() if result.stdout.strip() else []
+                except Exception:
+                    parents = []
+                
+                # Get changed files
+                try:
+                    result = subprocess.run(
+                        ["git", "diff", "--name-only", *parents, task.commit_id] if parents else ["git", "show", "--name-only", "--format=", task.commit_id],
+                        cwd=self.workspace, capture_output=True, text=True, timeout=10
+                    )
+                    changed_files = [f.strip() for f in result.stdout.splitlines() if f.strip()]
+                except Exception:
+                    changed_files = []
+                
+                task_info["commit_details"] = {
+                    "hash": task.commit_id,
+                    "branch": task.commit_hash if hasattr(task, 'commit_hash') else f"task/{task.task_id}",
+                    "parents": parents,
+                    "changed_files": changed_files,
+                }
+            evidence["tasks"].append(task_info)
         
-        # Receipts would be loaded from output directories
-        # For now, just save task summary
         evidence_path = self.output_base / f"evidence_{int(time.time())}.json"
         evidence_path.write_text(json.dumps(evidence, indent=2), encoding="utf-8")
         
