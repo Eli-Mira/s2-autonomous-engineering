@@ -1,5 +1,5 @@
 """
-Integrated Autonomous Orchestrator — S2 lifecycle + S3 FreeLLMAPI execution.
+Integrated Autonomous Orchestrator -- S2 lifecycle + S3 FreeLLMAPI execution.
 
 Replaces simulated provider with real FreeLLMAPI inference while preserving
 S2's task state machine, skill selection, dependency ordering, and Git checkpoints.
@@ -62,28 +62,28 @@ class TaskReceipt:
 class IntegratedOrchestrator:
     """
     Autonomous orchestrator with real FreeLLMAPI inference.
-    
+
     Lifecycle:
-    APPROVED TASK → CLAIM → SKILL SELECT → MODEL SELECT → REAL INFERENCE 
-    → APPLY FILES → TEST → BOUNDED REPAIR → RETEST → REVIEW → GIT COMMIT → DONE
+    APPROVED TASK -> CLAIM -> SKILL SELECT -> MODEL SELECT -> REAL INFERENCE
+    -> APPLY FILES -> TEST -> BOUNDED REPAIR -> RETEST -> REVIEW -> GIT COMMIT -> DONE
     """
-    
+
     def __init__(self, workspace: Path, output_base: Path):
         self.workspace = Path(workspace).resolve()
         self.output_base = Path(output_base).resolve()
         self.store = TaskStore(self.workspace / "task_store")
         self.skill_router = SkillRouter()
-        
+
         # Ensure workspace structure
         self.workspace.mkdir(parents=True, exist_ok=True)
         (self.workspace / "src").mkdir(exist_ok=True)
         (self.workspace / "tests").mkdir(exist_ok=True)
         self.output_base.mkdir(parents=True, exist_ok=True)
-        
+
         # Initialize git
         self._init_git()
-        
-        # Specialist → S3 category mapping
+
+        # Specialist -> S3 category mapping
         self.specialist_to_category = {
             "backend": "Coding / Refactoring",
             "testing": "Testing / Debugging",
@@ -96,77 +96,64 @@ class IntegratedOrchestrator:
             "data": "Data / ML",
             "architecture": "Architecture / System Design",
         }
-    
+
     def _init_git(self):
         """Initialize git repo if needed."""
         if not (self.workspace / ".git").exists():
             subprocess.run(["git", "init", "-q"], cwd=self.workspace, capture_output=True)
             subprocess.run(["git", "config", "user.email", "lain@local"], cwd=self.workspace, capture_output=True)
             subprocess.run(["git", "config", "user.name", "Lain"], cwd=self.workspace, capture_output=True)
-            # Initial commit
             subprocess.run(["git", "add", "-A"], cwd=self.workspace, capture_output=True)
-            subprocess.run(["git", "commit", "-m", "Initial: autonomous integration workspace", "--allow-empty"], 
+            subprocess.run(["git", "commit", "-m", "Initial: autonomous integration workspace", "--allow-empty"],
                           cwd=self.workspace, capture_output=True)
         else:
-            # Reconcile existing Git state with task store
             self._reconcile_git_state()
-    
+
     def _reconcile_git_state(self):
-        """Reconcile task store with actual Git commits on restart.
-        
-        Checks for commits that should be recorded in task store but aren't,
-        preventing duplicate commits on re-run.
-        """
+        """Reconcile task store with actual Git commits on restart."""
         for task in self.store.all():
             if task.state == TaskState.DONE and not task.commit_id:
-                # Check if there's already a commit for this task
                 try:
                     result = subprocess.run(
                         ["git", "log", "--oneline", "--grep", f"[{task.task_id}]"],
                         cwd=self.workspace, capture_output=True, text=True, timeout=10
                     )
                     if result.stdout.strip():
-                        # Found existing commit, extract hash
                         commit_hash = result.stdout.strip().split()[0]
                         task.commit_id = commit_hash
                         self.store.save(task)
                         print(f"  Reconciled {task.task_id}: found existing commit {commit_hash[:8]}")
                 except Exception:
                     pass
-    
-    def add_task(self, task_id: str, title: str, description: str, 
+
+    def add_task(self, task_id: str, title: str, description: str,
                  specialist: str, dependencies: list[str] = None):
-        """Add a task to the orchestrator."""
-        task = make_task(task_id, title, description, specialist=specialist, 
+        task = make_task(task_id, title, description, specialist=specialist,
                         dependencies=dependencies or [])
         self.store.save(task)
         return task
-    
+
     def _get_category(self, specialist: str) -> str:
-        """Map specialist to S3 category."""
         return self.specialist_to_category.get(specialist, "Coding / Refactoring")
-    
+
     def _collect_source_context(self, reads: list[str]) -> dict[str, str]:
-        """Read source files for context."""
         context = {}
         for rel_path in reads:
             full_path = self.workspace / rel_path
             if full_path.is_file():
                 content = full_path.read_text(encoding="utf-8")
-                # Test files get full content; source files get truncated
                 limit = 8000 if "test_" in rel_path or rel_path.endswith(".py") else 5000
                 context[rel_path] = content[:limit]
         return context
-    
-    def _build_task_prompt(self, task: TaskRecord, skill_brief: str, 
+
+    def _build_task_prompt(self, task: TaskRecord, skill_brief: str,
                           source_context: dict[str, str]) -> str:
-        """Build the prompt for the model."""
         files_list = "\n".join(
-            f"--- {k} ({len(v)} chars) ---\n{v}\n--- END {k} ---" 
+            f"--- {k} ({len(v)} chars) ---\n{v}\n--- END {k} ---"
             for k, v in source_context.items()
         )
         deps = f"\nDEPENDENCIES: {', '.join(task.dependencies)}" if task.dependencies else ""
-        
+
         return f"""You are a senior Python engineer. Complete the task below.
 
 TASK: {task.title}
@@ -186,7 +173,7 @@ Do NOT use function-based APIs when tests expect class-based APIs.
 REQUIREMENTS:
 1. Write clean, tested Python code
 2. Follow EXACT API signatures from test files
-3. Do NOT modify any test files — only implementation files
+3. Do NOT modify any test files -- only implementation files
 4. Output ONLY the changed/added files as markdown code blocks
 5. Each code block MUST start with a comment line: # path/to/file.py
 6. No explanations, no markdown outside code blocks
@@ -197,23 +184,26 @@ EXAMPLE FORMAT:
 class StringProcessor:
     def reverse(self, text: str) -> str:
         return text[::-1]
-```
-"""
-    
+```"""
+
     def _determine_reads_writes(self, task: TaskRecord) -> tuple[list[str], list[str]]:
-        """Determine read/write file sets for the task."""
-        # Default: allow reading all src/, writing src/ and tests/
+        """Determine read/write file sets for the task.
+
+        Includes:
+        - All existing source files (read/write)
+        - Expected implementation files (read/write, may not exist yet)
+        - All test files (READ-ONLY)
+        - Common config files (read)
+        - API contract(s) (read, if present)
+        """
         reads = []
         writes = []
-        
-        # Scan existing files
+
         for src_file in (self.workspace / "src").rglob("*.py"):
             rel = src_file.relative_to(self.workspace).as_posix()
             reads.append(rel)
             writes.append(rel)
-        
-        # Add expected implementation files as writable targets
-        # (they may not exist yet but the model needs to create them)
+
         expected_impl = ["src/inventory/models.py", "src/inventory/database.py",
                         "src/inventory/service.py", "src/inventory/api.py"]
         for impl in expected_impl:
@@ -221,80 +211,90 @@ class StringProcessor:
                 writes.append(impl)
             if impl not in reads:
                 reads.append(impl)
-        
+
         for test_file in (self.workspace / "tests").rglob("test_*.py"):
             rel = test_file.relative_to(self.workspace).as_posix()
             reads.append(rel)
-            # Test files are READ-ONLY — never writable by the model
-        
-        # Add common config files
+
         for config in ["pyproject.toml", "README.md"]:
             p = self.workspace / config
             if p.exists():
                 rel = p.relative_to(self.workspace).as_posix()
                 reads.append(rel)
 
-        # Include API contract in reads if it exists
-        if (self.workspace / "API_CONTRACT.md").exists():
-            if "API_CONTRACT.md" not in reads:
-                reads.append("API_CONTRACT.md")
+        contract_paths = [
+            "API_CONTRACT.md",
+            "api_contract.md",
+            "contracts/api_contract.md",
+        ]
+        for contract in contract_paths:
+            if (self.workspace / contract).exists():
+                if contract not in reads:
+                    reads.append(contract)
 
         return reads, writes
-    
+
+    def _load_contracts(self) -> dict[str, str]:
+        """Load all available contract files from workspace.
+
+        Returns dict mapping contract path to content.
+        """
+        contracts = {}
+        contract_globs = [
+            "API_CONTRACT.md",
+            "api_contract.md",
+            "contracts/*.md",
+        ]
+        for pattern in contract_globs:
+            for contract_file in self.workspace.glob(pattern):
+                if contract_file.is_file():
+                    rel = contract_file.relative_to(self.workspace).as_posix()
+                    contracts[rel] = contract_file.read_text(encoding="utf-8")
+        return contracts
+
     def execute_task(self, task_id: str) -> TaskReceipt:
         """Execute a single task with real FreeLLMAPI inference and repair."""
         task = self.store.get(task_id)
         if not task:
             raise IntegrationError(f"Task {task_id} not found")
-        
-        # Claim task
+
         task = self.store.transition(task_id, TaskState.CLAIMED)
         task = self.store.transition(task_id, TaskState.RUNNING)
-        
-        # Select skills
+
         skill_brief = self._build_skill_brief(task)
-        
-        # Determine category and file sets
+
         category = self._get_category(task.specialist)
         reads, writes = self._determine_reads_writes(task)
         source_context = self._collect_source_context(reads)
-        
-        # Build prompt
+
         prompt = self._build_task_prompt(task, skill_brief, source_context)
-        
-        # Create output directory for this task
+
         task_output = self.output_base / task_id
         task_output.mkdir(parents=True, exist_ok=True)
-        
-        # Create isolated packet workspace (no .git) for S3 worker
+
         import tempfile
         import shutil
         packet_root = Path(tempfile.mkdtemp(prefix=f"packet_{task_id}_"))
         try:
-            # Mirror source files to packet
             for rel_path in reads:
                 src = self.workspace / rel_path
                 if src.is_file():
                     dst = packet_root / rel_path
                     dst.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(src, dst)
-            
-            # Also copy write-target files if they exist
+
             for rel_path in writes:
                 src = self.workspace / rel_path
                 if src.is_file() and rel_path not in reads:
                     dst = packet_root / rel_path
                     dst.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(src, dst)
-            
-            # Get acceptance tests for this task
+
             acceptance_tests = self._get_acceptance_tests(task_id)
-            
-            # Execute with FreeLLMAPI repair loop + acceptance-test-driven repair
+
             print(f"  [{task_id}] Starting FreeLLMAPI execution (category: {category})...")
             start_time = time.time()
-            
-            # Phase 1: Model's own repair loop (tests model-generated tests)
+
             model_receipts = freellmapi_repair_loop(
                 category=category,
                 workspace=str(packet_root),
@@ -305,23 +305,19 @@ class StringProcessor:
                 max_attempts=3,
                 required_context=32768,
             )
-            
-            # Copy model results back
+
             for rel_path in writes:
                 src = packet_root / rel_path
                 if src.is_file():
                     dst = self.workspace / rel_path
                     dst.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(src, dst)
-            
-            # Phase 2: ACCEPTANCE-TEST-DRIVEN repair loop
-            # Continue repairing until trusted acceptance tests pass
+
             max_acceptance_repairs = 2
             all_receipts = list(model_receipts)
             test_results = None
-            
+
             for acceptance_attempt in range(max_acceptance_repairs + 1):
-                # Run trusted acceptance tests
                 verify_result = subprocess.run(
                     [sys.executable, "-m", "pytest", *acceptance_tests, "-q", "--tb=short"],
                     cwd=str(self.workspace),
@@ -329,25 +325,24 @@ class StringProcessor:
                     text=True,
                     timeout=120,
                 )
-                
+
                 test_results = {
                     "exit_code": verify_result.returncode,
                     "stdout": verify_result.stdout,
                     "stderr": verify_result.stderr,
                     "acceptance_tests": acceptance_tests,
                 }
-                
+
                 if verify_result.returncode == 0:
                     print(f"  [{task_id}] Acceptance tests PASSED")
                     break
-                
+
                 if acceptance_attempt >= max_acceptance_repairs:
                     print(f"  [{task_id}] Acceptance tests FAILED after {max_acceptance_repairs} repair attempts")
                     break
-                
+
                 print(f"  [{task_id}] Acceptance tests FAILED (repair attempt {acceptance_attempt + 1}/{max_acceptance_repairs})")
-                
-                # Build repair prompt with acceptance test failure
+
                 acceptance_prompt = (
                     prompt + "\n\n"
                     "PREVIOUS ATTEMPT FAILED ACCEPTANCE TESTS. Here is the failure output:\n"
@@ -359,20 +354,17 @@ class StringProcessor:
                     "Match every class name, method signature, parameter name, and return type exactly. "
                     "Output the COMPLETE corrected file(s)."
                 )
-                
-                # Create new output directory for acceptance repair
+
                 acc_output = task_output / f"acceptance-repair-{acceptance_attempt}"
                 acc_output.mkdir(parents=True, exist_ok=True)
-                
-                # Sync workspace to packet
+
                 for rel_path in reads + writes:
                     src = self.workspace / rel_path
                     if src.is_file():
                         dst = packet_root / rel_path
                         dst.parent.mkdir(parents=True, exist_ok=True)
                         shutil.copy2(src, dst)
-                
-                # Run repair with acceptance failure feedback
+
                 repair_receipt = run_packet(
                     category=category,
                     workspace=str(packet_root),
@@ -384,42 +376,37 @@ class StringProcessor:
                     freellmapi_only=True,
                 )
                 all_receipts.append(repair_receipt)
-                
-                # Copy results back
+
                 for rel_path in writes:
                     src = packet_root / rel_path
                     if src.is_file():
                         dst = self.workspace / rel_path
                         dst.parent.mkdir(parents=True, exist_ok=True)
                         shutil.copy2(src, dst)
-            
+
             elapsed_ms = int((time.time() - start_time) * 1000)
             receipts = all_receipts
             final_receipt = receipts[-1]
             status = final_receipt.get("status", "blocked_unavailable")
-            
+
         finally:
-            # Cleanup packet
             shutil.rmtree(packet_root, ignore_errors=True)
-        
-        # Process final receipt
+
         final_receipt = receipts[-1]
         status = final_receipt.get("status", "blocked_unavailable")
-        
-        # Aggregate tokens and cost
+
         total_tokens = 0
         total_cost = 0.0
         model_used = None
-        
+
         for r in receipts:
             model_used = r.get("model") or model_used
             cost = r.get("reported_cost", 0)
             if cost:
                 total_cost += cost
-        
+
         files_changed = final_receipt.get("changed", [])
-        
-        # Create task receipt (test_results already set from acceptance loop)
+
         task_receipt = TaskReceipt(
             task_id=task_id,
             status="completed" if (status == "completed" and test_results and test_results.get("exit_code") == 0) else "failed",
@@ -431,21 +418,18 @@ class StringProcessor:
             elapsed_ms=elapsed_ms,
             error=None if (status == "completed" and test_results and test_results.get("exit_code") == 0) else final_receipt.get("error", "Acceptance tests failed"),
         )
-        
-        # Transition state
+
         if task_receipt.status == "completed":
             task = self.store.transition(task_id, TaskState.VERIFYING)
-            
             task = self.store.transition(task_id, TaskState.REVIEWING)
-            
-            # Git commit
+
             branch = f"task/{task_id}"
-            commit_msg = f"[{task_id}] {task.title} — FreeLLMAPI autonomous completion"
+            commit_msg = f"[{task_id}] {task.title} -- FreeLLMAPI autonomous completion"
             commit_hash = self._git_commit(commit_msg, branch=branch)
             task.commit_id = commit_hash
             task_receipt.git_commit = commit_hash
             task_receipt.git_branch = branch
-            
+
             task = self.store.transition(task_id, TaskState.COMMITTED)
             task = self.store.transition(task_id, TaskState.DONE)
             task.finished_at = datetime.now(timezone.utc).isoformat()
@@ -453,21 +437,17 @@ class StringProcessor:
         else:
             task = self.store.transition(task_id, TaskState.FAILED)
             task_receipt.status = "failed"
-        
+
         return task_receipt
-    
+
     def _build_skill_brief(self, task: TaskRecord) -> str:
-        """Build skill guidance for the task."""
         skills = self.skill_router.select_for_task(task.title, task.description)
-        
         briefs = []
         for skill in skills[:3]:
             briefs.append(f"## {skill.name}\n{skill.description[:500]}")
-        
         return "\n\n".join(briefs) if briefs else "No specific skills selected."
-    
+
     def _run_verification_tests(self) -> dict:
-        """Run the full test suite for verification."""
         try:
             result = subprocess.run(
                 [sys.executable, "-m", "pytest", "tests/", "-q", "--tb=short"],
@@ -476,29 +456,14 @@ class StringProcessor:
                 text=True,
                 timeout=120,
             )
-            return {
-                "exit_code": result.returncode,
-                "stdout": result.stdout,
-                "stderr": result.stderr,
-            }
+            return {"exit_code": result.returncode, "stdout": result.stdout, "stderr": result.stderr}
         except subprocess.TimeoutExpired as e:
             return {"exit_code": 124, "stdout": e.stdout or "", "stderr": e.stderr or ""}
 
     def _run_targeted_verification(self, task: TaskRecord, files_changed: list[str]) -> dict:
-        """Run the TRUSTED acceptance suite for this task.
-        
-        The orchestrator specifies which tests are required BEFORE model execution.
-        Acceptance tests are outside the model's writable scope.
-        This runs ALL required acceptance checks regardless of which files
-        the model modified.
-        """
-        # Get the acceptance test manifest for this task
         acceptance_tests = self._get_acceptance_tests(task.task_id)
-        
         if not acceptance_tests:
-            # No specific acceptance tests defined; run all tests
             acceptance_tests = ["tests/"]
-        
         try:
             result = subprocess.run(
                 [sys.executable, "-m", "pytest", *acceptance_tests, "-q", "--tb=short"],
@@ -507,83 +472,47 @@ class StringProcessor:
                 text=True,
                 timeout=120,
             )
-            return {
-                "exit_code": result.returncode,
-                "stdout": result.stdout,
-                "stderr": result.stderr,
-                "acceptance_tests": acceptance_tests,
-            }
+            return {"exit_code": result.returncode, "stdout": result.stdout, "stderr": result.stderr, "acceptance_tests": acceptance_tests}
         except subprocess.TimeoutExpired as e:
-            return {"exit_code": 124, "stdout": e.stdout or "", "stderr": e.stderr or "",
-                    "acceptance_tests": acceptance_tests}
-    
+            return {"exit_code": 124, "stdout": e.stdout or "", "stderr": e.stderr or "", "acceptance_tests": acceptance_tests}
+
     def _get_acceptance_tests(self, task_id: str) -> list[str]:
-        """Get the trusted acceptance test manifest for a task.
-        
-        Returns test files that the model cannot modify.
-        """
         manifest_path = self.workspace / "acceptance_tests.json"
         if manifest_path.exists():
             manifest = json.loads(manifest_path.read_text())
             return manifest.get(task_id, [])
-        # Default: all test files
         return ["tests/test_*.py"]
-    
+
     def _git_commit(self, message: str, branch: str) -> str:
-        """Create a git commit on a feature branch."""
-        # Create/switch to branch
-        subprocess.run(["git", "checkout", "-b", branch], cwd=self.workspace, 
-                      capture_output=True, text=True)
-        
-        # Add and commit
+        subprocess.run(["git", "checkout", "-b", branch], cwd=self.workspace, capture_output=True, text=True)
         subprocess.run(["git", "add", "-A"], cwd=self.workspace, capture_output=True)
-        subprocess.run(["git", "commit", "-m", message], cwd=self.workspace, 
-                      capture_output=True, text=True)
-        
-        # Get commit hash
-        result = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.workspace,
-                               capture_output=True, text=True)
+        subprocess.run(["git", "commit", "-m", message], cwd=self.workspace, capture_output=True, text=True)
+        result = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.workspace, capture_output=True, text=True)
         commit_hash = result.stdout.strip()
-        
-        # Return to main
         subprocess.run(["git", "checkout", "main"], cwd=self.workspace, capture_output=True)
-        
-        # Merge branch
-        subprocess.run(["git", "merge", "--no-ff", branch, "-m", f"Merge {branch}"],
-                      cwd=self.workspace, capture_output=True)
-        
+        subprocess.run(["git", "merge", "--no-ff", branch, "-m", f"Merge {branch}"], cwd=self.workspace, capture_output=True)
         return commit_hash
-    
+
     def run_all(self) -> list[TaskReceipt]:
-        """Execute all pending tasks in dependency order."""
         receipts = []
-        
         while True:
-            # Find next available task
             next_task = self._next_available_task()
             if not next_task:
                 break
-            
             print(f"\n>>> Executing {next_task.task_id}: {next_task.title}")
             receipt = self.execute_task(next_task.task_id)
             receipts.append(receipt)
-            
             if receipt.status == "failed":
                 print(f"  [{next_task.task_id}] FAILED: {receipt.error}")
-                # Stop on failure unless we want to continue
                 break
             else:
-                print(f"  [{next_task.task_id}] COMPLETED (model: {receipt.model_used}, "
-                      f"cost: ${receipt.total_cost_usd:.6f})")
-        
+                print(f"  [{next_task.task_id}] COMPLETED (model: {receipt.model_used}, cost: ${receipt.total_cost_usd:.6f})")
         return receipts
-    
+
     def _next_available_task(self) -> Optional[TaskRecord]:
-        """Get next task with satisfied dependencies."""
         for task in self.store.all():
             if task.state != TaskState.PENDING:
                 continue
-            # Check dependencies
             deps_satisfied = all(
                 self.store.get(dep_id) and self.store.get(dep_id).state == TaskState.DONE
                 for dep_id in task.dependencies
@@ -591,9 +520,8 @@ class StringProcessor:
             if deps_satisfied:
                 return task
         return None
-    
+
     def save_evidence(self) -> Path:
-        """Save complete run evidence including full receipts."""
         evidence = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "workspace": str(self.workspace),
@@ -601,8 +529,6 @@ class StringProcessor:
             "tasks": [],
             "receipts": [],
         }
-        
-        # Load receipts from output directories
         for task_dir in self.output_base.iterdir():
             if not task_dir.is_dir() or task_dir.name.startswith("recovery"):
                 continue
@@ -618,8 +544,6 @@ class StringProcessor:
                             evidence["receipts"].append(receipt)
                         except Exception:
                             pass
-        
-        # Task summary with commit metadata
         for task in self.store.all():
             task_info = {
                 "id": task.task_id,
@@ -629,9 +553,7 @@ class StringProcessor:
                 "dependencies": task.dependencies,
                 "commit_id": task.commit_id,
             }
-            # Add commit details if available
             if task.commit_id:
-                # Get parent commit
                 try:
                     result = subprocess.run(
                         ["git", "log", "--pretty=format:%P", "-1", task.commit_id],
@@ -640,8 +562,6 @@ class StringProcessor:
                     parents = result.stdout.strip().split() if result.stdout.strip() else []
                 except Exception:
                     parents = []
-                
-                # Get changed files
                 try:
                     result = subprocess.run(
                         ["git", "diff", "--name-only", *parents, task.commit_id] if parents else ["git", "show", "--name-only", "--format=", task.commit_id],
@@ -650,7 +570,6 @@ class StringProcessor:
                     changed_files = [f.strip() for f in result.stdout.splitlines() if f.strip()]
                 except Exception:
                     changed_files = []
-                
                 task_info["commit_details"] = {
                     "hash": task.commit_id,
                     "branch": task.commit_hash if hasattr(task, 'commit_hash') else f"task/{task.task_id}",
@@ -658,46 +577,38 @@ class StringProcessor:
                     "changed_files": changed_files,
                 }
             evidence["tasks"].append(task_info)
-        
         evidence_path = self.output_base / f"evidence_{int(time.time())}.json"
         evidence_path.write_text(json.dumps(evidence, indent=2), encoding="utf-8")
-        
         return evidence_path
-    
+
     def demonstrate_interruption_recovery(self) -> bool:
-        """Demonstrate that task state persists across process restart."""
-        # Simulate interruption by creating a new orchestrator instance
         new_orch = IntegratedOrchestrator(self.workspace, self.output_base / "recovery")
-        
-        # Check that completed tasks are still DONE
         recovered = 0
         for task in self.store.all():
             if task.state == TaskState.DONE:
                 new_task = new_orch.store.get(task.task_id)
                 if new_task and new_task.state == TaskState.DONE:
                     recovered += 1
-        
         return recovered > 0
 
 
-# Maintain backward compatibility with S2's orchestrator interface
 class Orchestrator:
     """Compatibility wrapper for existing S2 code."""
-    
+
     def __init__(self, workspace: Path):
         self.workspace = Path(workspace)
         self.integration = IntegratedOrchestrator(workspace, workspace / "output")
-    
-    def add_task(self, task_id: str, title: str, description: str, 
+
+    def add_task(self, task_id: str, title: str, description: str,
                  specialist: str = "backend", dependencies: list[str] = None):
         return self.integration.add_task(task_id, title, description, specialist, dependencies)
-    
+
     def run_task(self, task_id: str):
         return self.integration.execute_task(task_id)
-    
+
     def run_all(self):
         return self.integration.run_all()
-    
+
     def save_evidence(self):
         return self.integration.save_evidence()
 
