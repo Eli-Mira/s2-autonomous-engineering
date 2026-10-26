@@ -18,15 +18,17 @@
 - Repair prompt corrected (removed "Do not add __init__" contradiction)
 - `task_state.py`: added `finished_at` field to dataclass
 
-### S2-01 Secure Execution Confinement — Mock Layer (PASS)
-- **Design**: `isolation/DESIGN.md` — layered defense (process, filesystem, network, container)
-- **Wrapper**: `isolation/run_isolated.py` — confined subprocess with restricted env, timeouts, cleanup
-- **Status**: Mock layer complete; true container isolation BLOCKED pending owner authorization
+### S2-01 Secure Execution Confinement — Real Docker (PASS)
+- **Design**: `tools/docker_sandbox.py` — disposable Docker adapter
+- **Trial**: Single authorized synthetic trial (verify-isolation:latest)
+- **Security tests**: 10/10 PASS (S2-SEC-01 through S2-SEC-06)
+- **Report**: `docs/S2_SECURITY_ACCEPTANCE.md`, `docs/S2_DOCKER_TRIAL_REPORT.md`
+- **Status**: Real Docker isolation integrated and verified for synthetic-only code
 
-### S2-02 Confinement Negative Tests — Mock Layer (PASS)
-- **Tests**: `isolation/test_confinement.py` — 10 mock-based tests (9 pass, 1 skip on Windows)
-- **Coverage**: Path validation, env stripping, resource limits, network blocking, cleanup
-- **Status**: All supported threat vectors verified at mock layer
+### S2-02 Confinement Negative Tests — Real Docker (PASS)
+- **Tests**: `test_s2_security.py` — 10 real Docker negative tests (10 pass, 0 fail)
+- **Coverage**: Filesystem, credentials, network, runtime, resources, orchestration boundaries
+- **Status**: All required real enforcement tests passed
 
 ## Completed Milestones (Updated 2026-10-26)
 
@@ -40,13 +42,10 @@
 ### S2-10 Performance: 8/8 PASS
 ### S2-11 Release Engineering: PASS
 ### S2-12 Final Acceptance: PASS
+### Docker Backend Integration: PASS
 
 ## Blocked
 
-### S2-01/02 Full Container Isolation
-- **Requirement**: Docker/gVisor privileged installation
-- **Status**: BLOCKED pending owner authorization
-- **Mock layer**: Fully functional for synthetic-only execution
-
-## Final Status
-All authorized work complete. See docs/S2_FINAL_REPORT.md for full details.
+### S2-11 License Decision
+- **Requirement**: Owner license selection for public release
+- **Status**: BLOCKED

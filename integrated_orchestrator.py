@@ -37,6 +37,13 @@ from opencode_worker import (
     FRELLMAPI_ROUTES,
 )
 
+# Optional Docker sandbox backend
+try:
+    from tools.docker_sandbox import run_tests_in_sandbox as _docker_run_tests
+    _DOCKER_AVAILABLE = True
+except Exception:
+    _DOCKER_AVAILABLE = False
+
 
 class IntegrationError(Exception):
     pass
@@ -318,13 +325,36 @@ class StringProcessor:
             test_results = None
 
             for acceptance_attempt in range(max_acceptance_repairs + 1):
-                verify_result = subprocess.run(
-                    [sys.executable, "-m", "pytest", *acceptance_tests, "-q", "--tb=short"],
-                    cwd=str(self.workspace),
-                    capture_output=True,
-                    text=True,
-                    timeout=120,
-                )
+                if _DOCKER_AVAILABLE:
+                    verify_result = self._run_acceptance_tests_in_sandbox(
+                        task_id, acceptance_tests
+                    )
+                    # Map sandbox result dict to subprocess-like interface
+                    class _SandboxResult:
+                        def __init__(self, d):
+                            self.returncode = d.get("exit_code", 125)
+                            self.stdout = d.get("stdout", "")
+                            self.stderr = d.get("stderr", "")
+                    verify_result = _SandboxResult(verify_result)
+                    if verify_result.returncode == 125 and "Docker sandbox not available" in verify_result.stderr:
+                        # Docker was expected but not available - fail closed
+                        test_results = {
+                            "exit_code": 125,
+                            "stdout": "",
+                            "stderr": "Docker sandbox unavailable; execution blocked",
+                            "acceptance_tests": acceptance_tests,
+                            "sandbox_blocked": True,
+                        }
+                        print(f"  [{task_id}] BLOCKED: Docker sandbox unavailable")
+                        break
+                else:
+                    verify_result = subprocess.run(
+                        [sys.executable, "-m", "pytest", *acceptance_tests, "-q", "--tb=short"],
+                        cwd=str(self.workspace),
+                        capture_output=True,
+                        text=True,
+                        timeout=120,
+                    )
 
                 test_results = {
                     "exit_code": verify_result.returncode,
@@ -460,10 +490,66 @@ class StringProcessor:
         except subprocess.TimeoutExpired as e:
             return {"exit_code": 124, "stdout": e.stdout or "", "stderr": e.stderr or ""}
 
+    def _run_acceptance_tests_in_sandbox(self, task_id: str, acceptance_tests: list[str]) -> dict:
+        """Run acceptance tests in the Docker sandbox.
+
+        Creates a disposable packet from the current workspace and executes
+        pytest inside the restricted container. Returns the same dict shape
+        as subprocess.run-based execution.
+        """
+        if not _DOCKER_AVAILABLE:
+            return {
+                "exit_code": 125,
+                "stdout": "",
+                "stderr": "Docker sandbox not available; fail-closed",
+                "acceptance_tests": acceptance_tests,
+                "sandbox_blocked": True,
+            }
+
+        import tempfile
+        packet_root = Path(tempfile.mkdtemp(prefix=f"sandbox_packet_{task_id}_"))
+        try:
+            # Copy current workspace state to packet
+            for f in self.workspace.rglob("*"):
+                if f.is_file():
+                    rel = f.relative_to(self.workspace).as_posix()
+                    dst = packet_root / rel
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(f, dst)
+
+            # Run tests in sandbox
+            result = _docker_run_tests(
+                packet_dir=packet_root,
+                test_files=acceptance_tests,
+                timeout=30,
+            )
+
+            return {
+                "exit_code": result.exit_code,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+                "acceptance_tests": acceptance_tests,
+                "sandbox_runtime": result.runtime,
+                "sandbox_security": result.security,
+            }
+        except Exception as e:
+            return {
+                "exit_code": 125,
+                "stdout": "",
+                "stderr": f"Sandbox execution failed: {e}",
+                "acceptance_tests": acceptance_tests,
+                "sandbox_blocked": True,
+            }
+        finally:
+            if packet_root.exists():
+                shutil.rmtree(packet_root, ignore_errors=True)
+
     def _run_targeted_verification(self, task: TaskRecord, files_changed: list[str]) -> dict:
         acceptance_tests = self._get_acceptance_tests(task.task_id)
         if not acceptance_tests:
             acceptance_tests = ["tests/"]
+        if _DOCKER_AVAILABLE:
+            return self._run_acceptance_tests_in_sandbox(task.task_id, acceptance_tests)
         try:
             result = subprocess.run(
                 [sys.executable, "-m", "pytest", *acceptance_tests, "-q", "--tb=short"],

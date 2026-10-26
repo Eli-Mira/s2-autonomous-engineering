@@ -1,6 +1,6 @@
 # S2 Autonomous Engineering System — Release Checklist
 
-**Status:** PASS (all authorized milestones complete)  
+**Status:** PASS (Docker sandbox integrated, real security tests 10/10)  
 **Last updated:** 2026-10-26  
 **Repository:** `C:\Users\emadg\AppData\Local\hermes\cache\scratch\autonomous-integration\`
 
@@ -8,8 +8,8 @@
 
 | Milestone | Priority | Status | Evidence |
 |-----------|----------|--------|----------|
-| S2-01 Secure Execution Confinement | CRITICAL | MOCK LAYER PASS / TRUE ISOLATION BLOCKED | `isolation/DESIGN.md`, `run_isolated.py` |
-| S2-02 Confinement Negative Tests | CRITICAL | MOCK LAYER PASS / TRUE ISOLATION BLOCKED | `isolation/test_confinement.py` (9 pass, 1 skip) |
+| S2-01 Secure Execution Confinement | CRITICAL | REAL DOCKER PASS (10/10 security tests) | `tools/docker_sandbox.py`, `docs/S2_SECURITY_ACCEPTANCE.md` |
+| S2-02 Confinement Negative Tests | CRITICAL | REAL DOCKER PASS (10/10 security tests) | `test_s2_security.py`, `docs/S2_SECURITY_ACCEPTANCE.md` |
 | S2-03 Autonomous Coding Benchmarks | HIGH | PASS (mock) | `test_s2_03.py` (31/31) |
 | S2-04 Contract-Aware Engineering | HIGH | PASS | `integrated_orchestrator.py`, `API_CONTRACT.md` |
 | S2-05 Orchestration Reliability | HIGH | PASS | `test_s2_05.py` (10/10) |
@@ -54,6 +54,4 @@
 
 | Blocker | Detail | Required Action |
 |---------|--------|-----------------|
-| S2-01/02 Full isolation | Docker/gVisor requires privileged installation | Owner approval needed for true container isolation |
-| S2-09 | Requires clean environment | — |
 | S2-11 | Requires license decision | Owner approval needed |
