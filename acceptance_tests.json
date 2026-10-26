@@ -7,5 +7,8 @@
   ],
   "TASK_C": [
     "tests/test_string_processor.py"
+  ],
+  "TASK_D": [
+    "tests/test_inventory.py"
   ]
 }

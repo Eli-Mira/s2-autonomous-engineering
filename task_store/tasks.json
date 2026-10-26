@@ -22,7 +22,8 @@
       "updated_at": 1792928873.3577414,
       "error": null,
       "metadata": {},
-      "dependencies": []
+      "dependencies": [],
+      "finished_at": null
     },
     {
       "task_id": "TASK_B",
@@ -46,13 +47,41 @@
       "updated_at": 1792928921.6116483,
       "error": null,
       "metadata": {},
-      "dependencies": []
+      "dependencies": [],
+      "finished_at": null
     },
     {
       "task_id": "TASK_C",
       "idempotency_key": "TASK_C-c11452f9",
       "title": "Add statistics methods to StringProcessor",
       "description": "Add char_frequency(), word_frequency(), entropy(), and longest_word() methods to the EXISTING StringProcessor class. You MUST preserve the EXACT method signatures of all existing methods:\n\nEXISTING CLASS (preserve exactly):\n```python\nimport re\nfrom collections import Counter\n\nclass StringProcessor:\n    def reverse(self, text: str) -> str:\n        return text[::-1]\n\n    def word_count(self, text: str) -> int:\n        if not text or not text.strip():\n            return 0\n        return len(text.split())\n\n    def is_palindrome(self, text: str) -> bool:\n        cleaned = re.sub(r'[^a-zA-Z0-9]', '', text).lower()\n        return cleaned == cleaned[::-1]\n\n    def most_common_char(self, text: str) -> str | None:\n        cleaned = [c.lower() for c in text if c.isalnum()]\n        if not cleaned:\n            return None\n        counts = Counter(cleaned)\n        max_count = max(counts.values())\n        for char, count in counts.items():\n            if count == max_count:\n                return char\n        return None\n\n    def remove_vowels(self, text: str) -> str:\n        vowels = set('aeiouAEIOU')\n        return ''.join(c for c in text if c not in vowels)\n```\n\nADD these four new methods with these exact signatures:\n- char_frequency(self, text: str) -> dict[str, int]\n- word_frequency(self, text: str) -> dict[str, int]\n- entropy(self, text: str) -> float\n- longest_word(self, text: str) -> str\n\nDo NOT change any existing method signatures. Do NOT add __init__. Do NOT modify test files.",
+      "state": "done",
+      "specialist": "backend",
+      "workspace": "",
+      "model": "deterministic-simulated",
+      "skill": "coding",
+      "source_hashes": {},
+      "attempts": 0,
+      "repairs": 0,
+      "max_repairs": 3,
+      "test_evidence": {},
+      "commit_id": "51aa95592a2ef6b89e2e4e0d23e2816068c19c09",
+      "recovery_checkpoint": null,
+      "next_task_id": null,
+      "created_at": 1792928772.1170266,
+      "updated_at": 1792928979.3531258,
+      "error": null,
+      "metadata": {},
+      "dependencies": [
+        "TASK_A"
+      ],
+      "finished_at": null
+    },
+    {
+      "task_id": "TASK_D",
+      "idempotency_key": "TASK_D-899b42bd",
+      "title": "Implement Inventory Service with SQLite, Service Layer, and FastAPI",
+      "description": "Implement a complete inventory service with:\n1. Database layer (src/inventory/database.py) - SQLite with products and stock_movements tables\n2. Service layer (src/inventory/service.py) - Business logic for CRUD and stock operations\n3. Models (src/inventory/models.py) - Product and StockMovement dataclasses\n4. FastAPI REST API (src/inventory/api.py) - Endpoints for products and stock\n\nAll code must pass the acceptance tests in tests/test_inventory.py. Do not modify the test file. The acceptance tests cover:\n- Product CRUD (create, get by id/sku, list)\n- Stock operations (receive, ship, adjust with validation)\n- Stock history tracking\n- Price conversion and timestamps\n\nUse the existing file structure in src/inventory/ as starting point.",
       "state": "reviewing",
       "specialist": "backend",
       "workspace": "",
@@ -66,13 +95,12 @@
       "commit_id": null,
       "recovery_checkpoint": null,
       "next_task_id": null,
-      "created_at": 1792928772.1170266,
-      "updated_at": 1792928979.014857,
+      "created_at": 1792929258.1933033,
+      "updated_at": 1792980343.3520854,
       "error": null,
       "metadata": {},
-      "dependencies": [
-        "TASK_A"
-      ]
+      "dependencies": [],
+      "finished_at": null
     }
   ]
 }

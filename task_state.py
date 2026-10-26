@@ -54,6 +54,7 @@ class TaskRecord:
     error: Optional[str] = None
     metadata: dict = field(default_factory=dict)
     dependencies: list[str] = field(default_factory=list)
+    finished_at: Optional[str] = None
 
     def to_dict(self):
         d = asdict(self)

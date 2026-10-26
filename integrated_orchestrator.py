@@ -153,13 +153,18 @@ class IntegratedOrchestrator:
             full_path = self.workspace / rel_path
             if full_path.is_file():
                 content = full_path.read_text(encoding="utf-8")
-                context[rel_path] = content[:5000]  # Limit context size
+                # Test files get full content; source files get truncated
+                limit = 8000 if "test_" in rel_path or rel_path.endswith(".py") else 5000
+                context[rel_path] = content[:limit]
         return context
     
     def _build_task_prompt(self, task: TaskRecord, skill_brief: str, 
                           source_context: dict[str, str]) -> str:
         """Build the prompt for the model."""
-        files_list = "\n".join(f"- {k} ({len(v)} chars)" for k, v in source_context.items())
+        files_list = "\n".join(
+            f"--- {k} ({len(v)} chars) ---\n{v}\n--- END {k} ---" 
+            for k, v in source_context.items()
+        )
         deps = f"\nDEPENDENCIES: {', '.join(task.dependencies)}" if task.dependencies else ""
         
         return f"""You are a senior Python engineer. Complete the task below.
@@ -170,12 +175,17 @@ DESCRIPTION: {task.description}{deps}
 SKILL GUIDANCE:
 {skill_brief}
 
-EXISTING FILES IN WORKSPACE:
+EXISTING FILES IN WORKSPACE (READ-ONLY for tests, writeable for src/):
 {files_list or "(none)"}
+
+CRITICAL: The test files define the EXACT API you must implement.
+Match every class name, method signature, parameter name, and return type.
+Do NOT invent different APIs. Do NOT use Decimal when tests expect int cents.
+Do NOT use function-based APIs when tests expect class-based APIs.
 
 REQUIREMENTS:
 1. Write clean, tested Python code
-2. Follow existing patterns in the workspace
+2. Follow EXACT API signatures from test files
 3. Do NOT modify any test files — only implementation files
 4. Output ONLY the changed/added files as markdown code blocks
 5. Each code block MUST start with a comment line: # path/to/file.py
@@ -202,12 +212,20 @@ class StringProcessor:
             reads.append(rel)
             writes.append(rel)
         
+        # Add expected implementation files as writable targets
+        # (they may not exist yet but the model needs to create them)
+        expected_impl = ["src/inventory/models.py", "src/inventory/database.py",
+                        "src/inventory/service.py", "src/inventory/api.py"]
+        for impl in expected_impl:
+            if impl not in writes:
+                writes.append(impl)
+            if impl not in reads:
+                reads.append(impl)
+        
         for test_file in (self.workspace / "tests").rglob("test_*.py"):
             rel = test_file.relative_to(self.workspace).as_posix()
             reads.append(rel)
-            # Include test files in writes so they get tested during repair loop
-            # Model is instructed not to modify them
-            writes.append(rel)
+            # Test files are READ-ONLY — never writable by the model
         
         # Add common config files
         for config in ["pyproject.toml", "README.md"]:
@@ -215,7 +233,12 @@ class StringProcessor:
             if p.exists():
                 rel = p.relative_to(self.workspace).as_posix()
                 reads.append(rel)
-        
+
+        # Include API contract in reads if it exists
+        if (self.workspace / "API_CONTRACT.md").exists():
+            if "API_CONTRACT.md" not in reads:
+                reads.append("API_CONTRACT.md")
+
         return reads, writes
     
     def execute_task(self, task_id: str) -> TaskReceipt:
@@ -331,7 +354,9 @@ class StringProcessor:
                     f"STDOUT: {verify_result.stdout}\n"
                     f"STDERR: {verify_result.stderr}\n"
                     "The implementation must match the EXACT API signatures required by the acceptance tests. "
-                    "Do not change method signatures, add __init__, or use instance variables. "
+                    "If tests expect a class with __init__, add it. "
+                    "If tests expect instance methods, use them. "
+                    "Match every class name, method signature, parameter name, and return type exactly. "
                     "Output the COMPLETE corrected file(s)."
                 )
                 
