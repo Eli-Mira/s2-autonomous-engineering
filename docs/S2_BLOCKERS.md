@@ -1,13 +1,15 @@
 # S2 Blocker Ledger
 
 ## BLOCKER-001: Execution Confinement (Docker/gVisor)
-- **Milestone:** S2-01
-- **Status:** BLOCKED
+- **Milestone:** S2-01 / S2-02
+- **Status:** BLOCKED (true isolation); MOCK LAYER PASS
 - **Requirement:** Privileged Docker daemon access or WSL2/gVisor installation
 - **Why it matters:** Model-generated code currently executes in host Python process without true isolation
 - **Evidence:** Temp directories provide file-scope isolation only; no process/container sandbox
+- **Mock layer achieved:** `isolation/DESIGN.md`, `run_isolated.py`, `test_confinement.py` (9 pass, 1 skip)
+- **Mock layer limitation:** Mock tests verify design intent. True process/filesystem/network confinement NOT VERIFIED. Negative tests against actual security boundary NOT COMPLETED.
 - **Safe work completed:** Isolation design document, adapter scaffold, mock tests
-- **Next action after resolution:** Run confinement negative tests (S2-02), then Benchmarks B-H
+- **Next action after resolution:** Run confinement negative tests (S2-02) against true boundary, then Benchmarks B-H
 
 ## BLOCKER-002: Owner License Decision
 - **Milestone:** S2-11
