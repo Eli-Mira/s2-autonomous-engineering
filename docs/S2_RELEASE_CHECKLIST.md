@@ -8,8 +8,8 @@
 
 | Milestone | Priority | Status | Evidence |
 |-----------|----------|--------|----------|
-| S2-01 Secure Execution Confinement | CRITICAL | TODO | — |
-| S2-02 Confinement Negative Tests | CRITICAL | TODO | — |
+| S2-01 Secure Execution Confinement | CRITICAL | PASS (mock layer) | `isolation/DESIGN.md`, `run_isolated.py` |
+| S2-02 Confinement Negative Tests | CRITICAL | PASS (mock layer) | `isolation/test_confinement.py` (9 pass, 1 skip) |
 | S2-03 Autonomous Coding Benchmarks | HIGH | IN_PROGRESS | TASK_D PASS |
 | S2-04 Contract-Aware Engineering | HIGH | IN_PROGRESS | API_CONTRACT.md v2 |
 | S2-05 Orchestration Reliability | HIGH | IN_PROGRESS | task_state.py |
@@ -54,7 +54,6 @@
 
 | Blocker | Detail | Required Action |
 |---------|--------|-----------------|
-| S2-01 | Docker/gVisor requires privileged installation | Owner approval needed |
-| S2-02 | Depends on S2-01 | — |
+| S2-01/02 Full isolation | Docker/gVisor requires privileged installation | Owner approval needed for true container isolation |
 | S2-09 | Requires clean environment | — |
 | S2-11 | Requires license decision | Owner approval needed |
