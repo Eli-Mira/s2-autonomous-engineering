@@ -1,0 +1,14 @@
+{
+  "Main Orchestrator / Planning": ["gemini-2.5-flash-lite", "qwen3.8-flash", "gemini-3.1-flash-lite"],
+  "Backend / API": ["qwen3.8-flash", "qwen3.7-flash", "deepseek-v4-flash"],
+  "Database / PostgreSQL": ["qwen3.8-flash", "qwen3.7-flash", "deepseek-v4-flash"],
+  "Security / Auditing": ["gemini-3.5-flash-lite", "qwen3.8-flash", "gemini-3.1-flash-lite"],
+  "Frontend / UI / UX": ["gemini-2.5-flash-lite", "gemini-3.5-flash-lite", "qwen3.8-flash"],
+  "Coding / Refactoring": ["qwen3.8-flash", "qwen3.7-flash", "gemini-3.1-flash-lite"],
+  "Testing / Debugging": ["qwen3.7-flash", "gemini-3.1-flash-lite", "deepseek-v4-flash"],
+  "Code Review / QA": ["qwen3.7-flash", "qwen3.8-flash", "gemini-3.1-flash-lite"],
+  "Architecture / System Design": ["qwen3.8-flash", "gemini-3.5-flash-lite", "qwen3.7-flash"],
+  "Automation / Integrations": ["qwen3.8-flash", "deepseek-v4-flash", "qwen3.7-flash"],
+  "OCR / Images / Receipts": ["gemini-3.5-flash-lite", "gemini-2.5-flash-lite", "gemini-3.1-flash-lite"],
+  "Research / Documentation": ["gemini-2.5-flash-lite", "qwen3.8-flash", "gemini-3.1-flash-lite"]
+}

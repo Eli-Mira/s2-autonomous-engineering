@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+.venv/
+env/
+task_store/tasks.json
+output/
+*.tmp
+.DS_Store
+*.log
+docs/S2_*.md
+sandbox_security_workdir/
+test_scheduler_workspace/
+output_scheduler_test/

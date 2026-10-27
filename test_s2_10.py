@@ -29,14 +29,11 @@ check("skill_router import < 1s", sr_time < 1, f"({sr_time:.3f}s)")
 # 4. Check token efficiency - prompt size
 orch = integrated_orchestrator.IntegratedOrchestrator(
     Path(".").resolve(), Path("output").resolve())
+from task_state import make_task
+t = make_task("PERF", "perf test", "desc")
 prompt = orch._build_task_prompt(
-    orch.store.get("TASK_D") if "TASK_D" in [t.task_id for t in orch.store.all()] else None,
+    t,
     "skill brief", {"test.py": "x" * 100})
-# Use a mock task if TASK_D not in store
-if prompt is None:
-    from task_state import make_task
-    t = make_task("PERF", "perf test", "desc")
-    prompt = orch._build_task_prompt(t, "skill brief", {"test.py": "x" * 100})
 check("prompt size reasonable", len(prompt) < 50000, f"({len(prompt)} chars)")
 
 # 5. Check evidence file sizes

@@ -1,0 +1,9 @@
+Third-Party Dependencies
+========================
+
+Python 3.14.9 — PSF License
+pytest 9.x — MIT License
+pluggy — MIT License
+anyio — MIT License
+
+All third-party licenses remain in effect. S2 proprietary code is excluded from open-source licensing.

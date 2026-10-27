@@ -1,0 +1,14 @@
+{
+  "TASK_A": [
+    "tests/test_string_processor.py"
+  ],
+  "TASK_B": [
+    "tests/test_calculator.py"
+  ],
+  "TASK_C": [
+    "tests/test_string_processor.py"
+  ],
+  "TASK_D": [
+    "tests/test_inventory.py"
+  ]
+}
